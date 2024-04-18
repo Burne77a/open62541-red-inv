@@ -550,6 +550,7 @@ typedef struct UA_DataSetReader {
     UA_Boolean msgRcvTimeoutTimerRunning;
 #endif
     UA_DateTime lastHeartbeatReceived;
+    UA_UInt16 lastRcvdDataSetMessageSequenceNr;
 } UA_DataSetReader;
 
 /* Process Network Message using DataSetReader */
@@ -654,6 +655,7 @@ struct UA_ReaderGroup {
     UA_PubSubKeyStorage *keyStorage;
 #endif
 #endif
+    UA_UInt16 sequenceNumber;
 };
 
 UA_StatusCode

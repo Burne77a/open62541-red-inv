@@ -49,6 +49,7 @@ const UA_Byte DS_MESSAGEHEADER_PICOSECONDS_INCLUDED_MASK = 32;
 const UA_Byte NM_SHIFT_LEN = 2;
 const UA_Byte DS_MH_SHIFT_LEN = 1;
 
+static UA_Boolean isToResetSequenceNumber = UA_FALSE;
 typedef struct {
     u8 *pos;
     const u8 *end;
@@ -58,18 +59,89 @@ static UA_Boolean UA_NetworkMessage_ExtendedFlags1Enabled(const UA_NetworkMessag
 static UA_Boolean UA_NetworkMessage_ExtendedFlags2Enabled(const UA_NetworkMessage* src);
 static UA_Boolean UA_DataSetMessageHeader_DataSetFlags2Enabled(const UA_DataSetMessageHeader* src);
 
+static UA_Boolean isToResetDataSetSequenceNumber = UA_FALSE;
+
+static UA_UInt16 dataSetSeqNrStored = 0;
+static UA_UInt16 writerGroupSeqNrStored = 0;
+static UA_Boolean isToRestoreDataSetSeqNr = UA_FALSE;
+static UA_Boolean isToRestoreWriterGroupSeqNr = UA_FALSE;
+
+
+int UA_FIT_ActivateDataSetResetSeqNumber()
+{
+    isToResetDataSetSequenceNumber = UA_TRUE;
+    return 0;
+}
+
+int UA_FIT_DeactivateDataSetResetSeqNumber()
+{
+    isToResetDataSetSequenceNumber = UA_FALSE;
+    return 0;
+}
+
+
+int UA_FIT_ActivateResetSeqNumber()
+{
+    isToResetSequenceNumber = UA_TRUE;
+    return 0;
+}
+
+int UA_FIT_DeactivateResetSeqNumber()
+{
+    isToResetSequenceNumber = UA_FALSE;
+    return 0;
+}
+
+int ActivateRestoreOfSeqNr()
+{
+    isToRestoreDataSetSeqNr = UA_TRUE;
+    isToRestoreWriterGroupSeqNr = UA_TRUE;
+    return 0;
+}
 UA_StatusCode
 UA_NetworkMessage_updateBufferedMessage(UA_NetworkMessageOffsetBuffer *buffer) {
     UA_StatusCode rv = UA_STATUSCODE_GOOD;
+    UA_UInt16 dummySeqNr = 0U;
     const UA_Byte *bufEnd = &buffer->buffer.data[buffer->buffer.length];
     for(size_t i = 0; i < buffer->offsetsSize; ++i) {
         UA_NetworkMessageOffset *nmo = &buffer->offsets[i];
         UA_Byte *bufPos = &buffer->buffer.data[nmo->offset];
         switch(nmo->contentType) {
             case UA_PUBSUB_OFFSETTYPE_DATASETMESSAGE_SEQUENCENUMBER:
+                if(isToRestoreDataSetSeqNr)
+                {
+                    nmo->content.sequenceNumber = dataSetSeqNrStored;
+                    isToRestoreDataSetSeqNr = UA_FALSE;
+                }
+
+                if(isToResetDataSetSequenceNumber)
+                {
+                    rv = UA_UInt16_encodeBinary(&dummySeqNr, &bufPos, bufEnd);
+                }
+                else
+                {
+                    rv = UA_UInt16_encodeBinary(&nmo->content.sequenceNumber, &bufPos, bufEnd);
+                    nmo->content.sequenceNumber++;
+                }
+                dataSetSeqNrStored = nmo->content.sequenceNumber;
+                break;
             case UA_PUBSUB_OFFSETTYPE_NETWORKMESSAGE_SEQUENCENUMBER:
-                rv = UA_UInt16_encodeBinary(&nmo->content.sequenceNumber, &bufPos, bufEnd);
+                if(isToRestoreWriterGroupSeqNr)
+                {
+                    nmo->content.sequenceNumber = writerGroupSeqNrStored;
+                    isToRestoreWriterGroupSeqNr = UA_FALSE;
+                }
+                if(isToResetSequenceNumber)
+                {
+                    rv = UA_UInt16_encodeBinary(&dummySeqNr, &bufPos, bufEnd);
+                }
+                else
+                {
+                    rv = UA_UInt16_encodeBinary(&nmo->content.sequenceNumber, &bufPos, bufEnd);
+                }      
                 nmo->content.sequenceNumber++;
+                writerGroupSeqNrStored = nmo->content.sequenceNumber;
+                
                 break;
             case UA_PUBSUB_OFFSETTYPE_PAYLOAD_DATAVALUE:
                 rv = UA_DataValue_encodeBinary(&nmo->content.value, &bufPos, bufEnd);
@@ -317,9 +389,20 @@ UA_GroupHeader_encodeBinary(EncodeCtx *ctx, const UA_NetworkMessage* src) {
                                      &ctx->pos, ctx->end);
 
     if(src->groupHeader.sequenceNumberEnabled)
-        rv |= UA_UInt16_encodeBinary(&src->groupHeader.sequenceNumber,
+    {
+        UA_UInt16 resetedSeq = 0;
+        if(isToResetSequenceNumber)
+        {
+            rv |= UA_UInt16_encodeBinary(&resetedSeq,
                                      &ctx->pos, ctx->end);
-
+        }
+        else
+        {
+            rv |= UA_UInt16_encodeBinary(&src->groupHeader.sequenceNumber,
+                                     &ctx->pos, ctx->end);
+        }
+    }
+        
     return rv;
 }
 

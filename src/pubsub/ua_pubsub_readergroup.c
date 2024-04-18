@@ -348,6 +348,7 @@ UA_ReaderGroup_setPubSubState(UA_Server *server, UA_ReaderGroup *rg,
     case UA_PUBSUBSTATE_ERROR:
         UA_ReaderGroup_disconnect(rg);
         rg->hasReceived = false;
+        rg->sequenceNumber = 0;
         break;
 
         /* Enabled */
@@ -749,6 +750,20 @@ UA_ReaderGroup_decodeAndProcessRT(UA_Server *server, UA_ReaderGroup *rg,
         goto cleanup;
     }
 #endif
+    if(currentNetworkMessage.groupHeader.sequenceNumberEnabled)
+    {
+        //(New-1-Last) modulo 65.536
+        const UA_UInt16 oldSeq = rg->sequenceNumber;
+        const UA_UInt32 acceptVal = (currentNetworkMessage.groupHeader.sequenceNumber - 1 - oldSeq) % 65536;
+        if(acceptVal > 49152)
+        {
+            goto cleanup;
+        }
+        else
+        {
+            rg->sequenceNumber = currentNetworkMessage.groupHeader.sequenceNumber;
+        }
+    }
 
     /* Process the message for each reader */
     UA_DataSetReader *dsr;

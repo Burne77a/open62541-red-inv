@@ -595,6 +595,7 @@ UA_DataSetReader_setPubSubState(UA_Server *server, UA_DataSetReader *dsr,
         /* Disabled */
     case UA_PUBSUBSTATE_DISABLED:
     case UA_PUBSUBSTATE_ERROR:
+        dsr->lastRcvdDataSetMessageSequenceNr = 0;
         break;
 
         /* Enabled */
@@ -611,6 +612,7 @@ UA_DataSetReader_setPubSubState(UA_Server *server, UA_DataSetReader *dsr,
 
     default:
         dsr->state = UA_PUBSUBSTATE_ERROR;
+        dsr->lastRcvdDataSetMessageSequenceNr = 0;
         res = UA_STATUSCODE_BADINTERNALERROR;
         break;
     }
@@ -1008,6 +1010,21 @@ UA_DataSetReader_process(UA_Server *server, UA_DataSetReader *dsr,
          *     }
          * } */
         return;
+    }
+    if(msg->header.dataSetMessageSequenceNrEnabled)
+    {
+        const UA_UInt16 oldSeq = dsr->lastRcvdDataSetMessageSequenceNr;
+        const UA_UInt32 acceptVal = (msg->header.dataSetMessageSequenceNr - 1 - oldSeq) % 65536;
+        if(acceptVal > 49152)
+        {
+           UA_LOG_INFO_READER(server->config.logging, dsr,
+                           "DataSetMessage is discarded: invalid sequence number");
+            return;
+        }
+        else
+        {
+            dsr->lastRcvdDataSetMessageSequenceNr = msg->header.dataSetMessageSequenceNr;
+        }
     }
 
     if(msg->header.dataSetMessageType != UA_DATASETMESSAGE_DATAKEYFRAME) {
